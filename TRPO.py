@@ -18,7 +18,7 @@ def build_mlp(input_placeholder,
 	return out
 
 class TRPOModel:
-	def __init__(self, learning_rate, n_layers=2, size, activation=tf.tanh, output_activation=None, env, sess, pro=True):
+	def __init__(self, env, sess, learning_rate=5e-3, n_layers=2, size=500, activation=tf.tanh, output_activation=None, pro=True):
 
 		self.learning_rate = learning_rate
 		self.sess = sess
