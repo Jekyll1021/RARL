@@ -59,23 +59,23 @@ def generate_rollouts(env, pro_model, adv_model, num_paths, horizon):
 def rarl_main(itrs, env, num_paths, horizon, learning_rate=5e-3, n_layers=2, size=500, activation=tf.tanh, output_activation=None):
 	tf_config = tf.ConfigProto(inter_op_parallelism_threads=1, intra_op_parallelism_threads=1) 
 
-    sess = tf.Session(config=tf_config)
-    sess.__enter__() # equivalent to `with sess:`
+	sess = tf.Session(config=tf_config)
+	sess.__enter__() # equivalent to `with sess:`
 
-    pro_model = TRPO(env, sess)
-    adv_model = TRPO(env, sess, pro=False)
+	pro_model = TRPO(env, sess)
+	adv_model = TRPO(env, sess, pro=False)
 
-    for i in range(itrs):
-    	paths = generate_rollouts(env, pro_model, adv_model, num_paths, horizon)
-    	# TODO: 1. Concate rollouts into proper form to feed in neuralnet.
-    	#		2. compute advantages based on rewards.
-    	pro_model.learn(states, pro_actions, pro_advantages)
-    	adv_model.learn(states, adv_actions, adv_advantages)
+	for i in range(itrs):
+		paths = generate_rollouts(env, pro_model, adv_model, num_paths, horizon)
+		# TODO: 1. Concate rollouts into proper form to feed in neuralnet.
+		#		2. compute advantages based on rewards.
+		pro_model.learn(states, pro_actions, pro_advantages)
+		adv_model.learn(states, adv_actions, adv_advantages)
 
-    	# TODO: compute and log avg return/reward for each rollout
+		# TODO: compute and log avg return/reward for each rollout
 
-    	# TODO: save/load model/data when necessary; render when necessary; plot when necessary.
+		# TODO: save/load model/data when necessary; render when necessary; plot when necessary.
 
-    return pro_model, adv_model
+	return pro_model, adv_model
 
 
