@@ -76,6 +76,24 @@ def traj_segment_generator(pro_pi, adv_pi, env, horizon, stochastic):
             ob = env.reset()
         t += 1
 
+def evaluate(pi, env, rollouts=50):
+    retlst = []
+    for _ in range(rollouts):
+        ret = 0
+        # t = 1e5
+        ob = env.reset()
+        done = False
+        # while not done and t > 0:
+        while not done:
+            ac = pi.act(False, ob)[0]
+            ob, rew, done, _ = env.step(ac)
+            ret += rew
+            # t -= 1
+        retlst.append(ret)
+    return np.mean(retlst)
+
+
+
 def add_vtarg_and_adv(seg, gamma, lam):
     """
     Compute target value using TD(lambda) estimator, and advantage with GAE(lambda)
@@ -98,7 +116,7 @@ def add_vtarg_and_adv(seg, gamma, lam):
     seg["pro_tdlamret"] = seg["pro_adv"] + seg["pro_vpred"]
     seg["adv_tdlamret"] = seg["adv_adv"] + seg["adv_vpred"]
 
-def learn(env, policy_func, *,
+def learn(env, test_env, policy_func, *,
         timesteps_per_batch, # timesteps per actor per update
         clip_param, entcoeff, # clipping parameter epsilon, entropy coeff
         optim_epochs, optim_stepsize, optim_batchsize,# optimization hypers
@@ -110,6 +128,8 @@ def learn(env, policy_func, *,
         ):
     # Setup losses and stuff
     # ----------------------------------------
+    rew_mean = []
+
     ob_space = env.observation_space
     pro_ac_space = env.action_space
     adv_ac_space = env.adv_action_space
@@ -226,8 +246,8 @@ def learn(env, policy_func, *,
         if hasattr(pro_pi, "ob_rms"): pro_pi.ob_rms.update(ob) # update running mean/std for policy
 
         pro_assign_old_eq_new() # set old parameter values to new parameter values
-        logger.log("Optimizing...")
-        logger.log(fmt_row(13, pro_loss_names))
+        # logger.log("Optimizing...")
+        # logger.log(fmt_row(13, pro_loss_names))
         # Here we do a bunch of optimization epochs over the data
         for _ in range(optim_epochs):
             pro_losses = [] # list of tuples, each of which gives the loss for a minibatch
@@ -235,39 +255,43 @@ def learn(env, policy_func, *,
                 *newlosses, g = pro_lossandgrad(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
                 pro_adam.update(g, optim_stepsize * cur_lrmult) 
                 pro_losses.append(newlosses)
-            logger.log(fmt_row(13, np.mean(pro_losses, axis=0)))
+            # logger.log(fmt_row(13, np.mean(pro_losses, axis=0)))
 
-        logger.log("Evaluating losses...")
+        # logger.log("Evaluating losses...")
         pro_losses = []
         for batch in d.iterate_once(optim_batchsize):
             newlosses = pro_compute_losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
             pro_losses.append(newlosses)            
         pro_meanlosses,_,_ = mpi_moments(pro_losses, axis=0)
-        logger.log(fmt_row(13, pro_meanlosses))
-        for (lossval, name) in zipsame(pro_meanlosses, pro_loss_names):
-            logger.record_tabular("pro_loss_"+name, lossval)
+        # logger.log(fmt_row(13, pro_meanlosses))
+        # for (lossval, name) in zipsame(pro_meanlosses, pro_loss_names):
+        #     logger.record_tabular("pro_loss_"+name, lossval)
 
         d = Dataset(dict(ob=ob, ac=adv_ac, atarg=adv_atarg, vtarg=adv_tdlamret), shuffle=not adv_pi.recurrent)
         if hasattr(adv_pi, "ob_rms"): adv_pi.ob_rms.update(ob)
         adv_assign_old_eq_new()
 
-        logger.log(fmt_row(13, adv_loss_names))
+        # logger.log(fmt_row(13, adv_loss_names))
         for _ in range(optim_epochs):
             adv_losses = [] # list of tuples, each of which gives the loss for a minibatch
             for batch in d.iterate_once(optim_batchsize):
                 *newlosses, g = adv_lossandgrad(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
                 adv_adam.update(g, optim_stepsize * cur_lrmult) 
                 adv_losses.append(newlosses)
-            logger.log(fmt_row(13, np.mean(adv_losses, axis=0)))
+            # logger.log(fmt_row(13, np.mean(adv_losses, axis=0)))
 
         adv_losses = []
         for batch in d.iterate_once(optim_batchsize):
             newlosses = adv_compute_losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
             adv_losses.append(newlosses)            
         adv_meanlosses,_,_ = mpi_moments(adv_losses, axis=0)
-        logger.log(fmt_row(13, adv_meanlosses))
-        for (lossval, name) in zipsame(adv_meanlosses, adv_loss_names):
-            logger.record_tabular("adv_loss_"+name, lossval)
+        # logger.log(fmt_row(13, adv_meanlosses))
+        # for (lossval, name) in zipsame(adv_meanlosses, adv_loss_names):
+        #     logger.record_tabular("adv_loss_"+name, lossval)
+
+        curr_rew = evaluate(pro_pi, test_env)
+        rew_mean.append(curr_rew)
+        print(curr_rew)
 
         # logger.record_tabular("ev_tdlam_before", explained_variance(pro_vpredbefore, pro_tdlamret))
         lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
@@ -275,17 +299,18 @@ def learn(env, policy_func, *,
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
         lenbuffer.extend(lens)
         rewbuffer.extend(rews)
-        logger.record_tabular("EpLenMean", np.mean(lenbuffer))
-        logger.record_tabular("EpRewMean", np.mean(rewbuffer))
-        logger.record_tabular("EpThisIter", len(lens))
+        # logger.record_tabular("EpLenMean", np.mean(lenbuffer))
+        # logger.record_tabular("EpRewMean", np.mean(rewbuffer))
+        # logger.record_tabular("EpThisIter", len(lens))
         episodes_so_far += len(lens)
         timesteps_so_far += sum(lens)
         iters_so_far += 1
-        logger.record_tabular("EpisodesSoFar", episodes_so_far)
-        logger.record_tabular("TimestepsSoFar", timesteps_so_far)
-        logger.record_tabular("TimeElapsed", time.time() - tstart)
-        if MPI.COMM_WORLD.Get_rank()==0:
-            logger.dump_tabular()
+        # logger.record_tabular("EpisodesSoFar", episodes_so_far)
+        # logger.record_tabular("TimestepsSoFar", timesteps_so_far)
+        # logger.record_tabular("TimeElapsed", time.time() - tstart)
+        # if MPI.COMM_WORLD.Get_rank()==0:
+        #     logger.dump_tabular()
+    return np.array(rew_mean)
 
 def flatten_lists(listoflists):
     return [el for list_ in listoflists for el in list_]
