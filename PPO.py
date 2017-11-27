@@ -67,7 +67,7 @@ def evaluate(pi, env):
     ob = env.reset()
     done = False
     while not done and t > 0:
-        ac = pi.act(False, ob)
+        ac = pi.act(False, ob)[0]
         ob, rew, done, _ = env.step(ac)
         ret += rew
         t -= 1
@@ -209,10 +209,10 @@ def learn(env, test_env, policy_func, *,
         # for (lossval, name) in zipsame(meanlosses, loss_names):
         #     logger.record_tabular("loss_"+name, lossval)
 
-        curr_rew = evaluate(pro_pi, test_env)
+        curr_rew = evaluate(pi, test_env)
         rew_mean.append(curr_rew)
         print(curr_rew)
-        
+
         # logger.record_tabular("ev_tdlam_before", explained_variance(vpredbefore, tdlamret))
         lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
         listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal) # list of tuples

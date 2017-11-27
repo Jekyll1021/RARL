@@ -110,7 +110,7 @@ def add_vtarg_and_adv(seg, gamma, lam):
     for t in reversed(range(T)):
         nonterminal = 1-new[t+1]
         pro_delta = rew[t] + gamma * pro_vpred[t+1] * nonterminal - pro_vpred[t]
-        adv_delta = -rew[t] - gamma * adv_vpred[t+1] * nonterminal + adv_vpred[t]
+        adv_delta = -rew[t] - gamma * pro_vpred[t+1] * nonterminal + pro_vpred[t]
         pro_gaelam[t] = pro_lastgaelam = pro_delta + gamma * lam * nonterminal * pro_lastgaelam
         adv_gaelam[t] = adv_lastgaelam = adv_delta + gamma * lam * nonterminal * adv_lastgaelam
     seg["pro_tdlamret"] = seg["pro_adv"] + seg["pro_vpred"]
