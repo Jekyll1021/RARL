@@ -1,17 +1,17 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import glob
+import torch
 
 
 def save_model(model, log, name):
-    import matplotlib.pyplot as plt
-    import torch
-
     torch.save(model.state_dict(), name)
     np.savetxt(name + '.log', log)
     fig = plt.figure()
     plt.plot(log)
     plt.show()
     fig.savefig(name + '.png')
+
 
 def get_training_data(human=False):
     files = glob.glob('data/training/demo_*.csv')
@@ -24,9 +24,11 @@ def get_training_data(human=False):
     #         ]
     # return get_data(files)
 
+
 def get_training_data_lstm():
     files = glob.glob('data/training/seq_*.csv')
     return get_data_from_raw_lstm(files)
+
 
 def get_test_data(human=False):
     # files = glob.glob('data/test/demo_*.csv')
@@ -63,6 +65,7 @@ def get_data(files, human=False):
             dataset = np.concatenate((dataset, data))
 
     return dataset
+
 
 def get_data_from_raw(files, human=False):
     dataset = None
@@ -107,6 +110,7 @@ def get_data_from_raw(files, human=False):
             dataset = np.concatenate((dataset, data))
 
     return dataset
+
 
 def get_data_from_raw_lstm(files):
 

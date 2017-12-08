@@ -1,26 +1,32 @@
+"""
+RARL Framework
+"""
+
+import time
+
+from collections import deque
+import tensorflow as tf, numpy as np
 from baselines.common import Dataset, explained_variance, fmt_row, zipsame
 from baselines import logger
 import baselines.common.tf_util as U
-import tensorflow as tf, numpy as np
-import time
 from baselines.common.mpi_adam import MpiAdam
 from baselines.common.mpi_moments import mpi_moments
 from mpi4py import MPI
-from collections import deque
+
 
 def traj_segment_generator(pro_pi, adv_pi, env, horizon, stochastic):
     t = 0
-    ac = env.sample_action() # not used, just so we have the datatype
+    ac = env.sample_action()  # not used, just so we have the datatype
     pro_ac = ac.pro
     adv_ac = ac.adv
 
-    new = True # marks if we're on first timestep of an episode
+    new = True  # marks if we're on first timestep of an episode
     ob = env.reset()
 
-    cur_ep_ret = 0 # return in current episode
-    cur_ep_len = 0 # len of current episode
-    ep_rets = [] # returns of completed episodes in this segment
-    ep_lens = [] # lengths of ...
+    cur_ep_ret = 0  # return in current episode
+    cur_ep_len = 0  # len of current episode
+    ep_rets = []  # returns of completed episodes in this segment
+    ep_lens = []  # lengths of ...
 
     # Initialize history arrays
     obs = np.array([ob for _ in range(horizon)])
@@ -45,10 +51,10 @@ def traj_segment_generator(pro_pi, adv_pi, env, horizon, stochastic):
         # terminal value
 
         if t > 0 and t % horizon == 0:
-            yield {"ob" : obs, "rew" : rews, "pro_vpred" : pro_vpreds, "adv_vpred" : adv_vpreds, "new" : news,
-                    "pro_ac" : pro_acs, "adv_ac" : adv_acs, "pro_prevac" : pro_prevacs, "adv_prevac" : adv_prevacs, 
+            yield {"ob": obs, "rew": rews, "pro_vpred": pro_vpreds, "adv_vpred": adv_vpreds, "new": news,
+                    "pro_ac": pro_acs, "adv_ac": adv_acs, "pro_prevac": pro_prevacs, "adv_prevac": adv_prevacs,
                     "pro_nextvpred": pro_vpred * (1 - new), "adv_nextvpred": adv_vpred * (1 - new),
-                    "ep_rets" : ep_rets, "ep_lens" : ep_lens}
+                    "ep_rets": ep_rets, "ep_lens": ep_lens}
             # Be careful!!! if you change the downstream algorithm to aggregate
             # several of these batches, then be sure to do a deepcopy
             ep_rets = []
@@ -76,6 +82,7 @@ def traj_segment_generator(pro_pi, adv_pi, env, horizon, stochastic):
             ob = env.reset()
         t += 1
 
+
 def evaluate(pi, env, rollouts=50):
     retlst = []
     for _ in range(rollouts):
@@ -91,7 +98,6 @@ def evaluate(pi, env, rollouts=50):
             # t -= 1
         retlst.append(ret)
     return np.mean(retlst)
-
 
 
 def add_vtarg_and_adv(seg, gamma, lam):
@@ -115,6 +121,7 @@ def add_vtarg_and_adv(seg, gamma, lam):
         adv_gaelam[t] = adv_lastgaelam = adv_delta + gamma * lam * nonterminal * adv_lastgaelam
     seg["pro_tdlamret"] = seg["pro_adv"] + seg["pro_vpred"]
     seg["adv_tdlamret"] = seg["adv_adv"] + seg["adv_vpred"]
+
 
 def learn(env, test_env, policy_func, *,
         timesteps_per_batch, # timesteps per actor per update
@@ -246,8 +253,7 @@ def learn(env, test_env, policy_func, *,
         if hasattr(pro_pi, "ob_rms"): pro_pi.ob_rms.update(ob) # update running mean/std for policy
 
         pro_assign_old_eq_new() # set old parameter values to new parameter values
-        # logger.log("Optimizing...")
-        # logger.log(fmt_row(13, pro_loss_names))
+
         # Here we do a bunch of optimization epochs over the data
         for _ in range(optim_epochs):
             pro_losses = [] # list of tuples, each of which gives the loss for a minibatch
@@ -255,17 +261,12 @@ def learn(env, test_env, policy_func, *,
                 *newlosses, g = pro_lossandgrad(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
                 pro_adam.update(g, optim_stepsize * cur_lrmult) 
                 pro_losses.append(newlosses)
-            # logger.log(fmt_row(13, np.mean(pro_losses, axis=0)))
 
-        # logger.log("Evaluating losses...")
         pro_losses = []
         for batch in d.iterate_once(optim_batchsize):
             newlosses = pro_compute_losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
             pro_losses.append(newlosses)            
         pro_meanlosses,_,_ = mpi_moments(pro_losses, axis=0)
-        # logger.log(fmt_row(13, pro_meanlosses))
-        # for (lossval, name) in zipsame(pro_meanlosses, pro_loss_names):
-        #     logger.record_tabular("pro_loss_"+name, lossval)
 
         d = Dataset(dict(ob=ob, ac=adv_ac, atarg=adv_atarg, vtarg=adv_tdlamret), shuffle=not adv_pi.recurrent)
         if hasattr(adv_pi, "ob_rms"): adv_pi.ob_rms.update(ob)
@@ -278,17 +279,12 @@ def learn(env, test_env, policy_func, *,
                 *newlosses, g = adv_lossandgrad(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
                 adv_adam.update(g, optim_stepsize * cur_lrmult) 
                 adv_losses.append(newlosses)
-            # logger.log(fmt_row(13, np.mean(adv_losses, axis=0)))
 
         adv_losses = []
         for batch in d.iterate_once(optim_batchsize):
             newlosses = adv_compute_losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
             adv_losses.append(newlosses)            
         adv_meanlosses,_,_ = mpi_moments(adv_losses, axis=0)
-        # logger.log(fmt_row(13, adv_meanlosses))
-        # for (lossval, name) in zipsame(adv_meanlosses, adv_loss_names):
-        #     logger.record_tabular("adv_loss_"+name, lossval)
-
         curr_rew = evaluate(pro_pi, test_env)
         rew_mean.append(curr_rew)
         print(curr_rew)
@@ -299,18 +295,12 @@ def learn(env, test_env, policy_func, *,
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
         lenbuffer.extend(lens)
         rewbuffer.extend(rews)
-        # logger.record_tabular("EpLenMean", np.mean(lenbuffer))
-        # logger.record_tabular("EpRewMean", np.mean(rewbuffer))
-        # logger.record_tabular("EpThisIter", len(lens))
         episodes_so_far += len(lens)
         timesteps_so_far += sum(lens)
         iters_so_far += 1
-        # logger.record_tabular("EpisodesSoFar", episodes_so_far)
-        # logger.record_tabular("TimestepsSoFar", timesteps_so_far)
-        # logger.record_tabular("TimeElapsed", time.time() - tstart)
-        # if MPI.COMM_WORLD.Get_rank()==0:
-        #     logger.dump_tabular()
+
     return np.array(rew_mean)
+
 
 def flatten_lists(listoflists):
     return [el for list_ in listoflists for el in list_]
